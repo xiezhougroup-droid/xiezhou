@@ -1,3 +1,13 @@
+---
+title: Procurement Inquiry Agent
+emoji: 📦
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 采购询价本地工作流
 
 这是一个可重复运行的本地脚本工作流原型。
