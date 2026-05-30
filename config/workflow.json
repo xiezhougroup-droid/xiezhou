@@ -1,0 +1,12 @@
+{
+  "boq_file": "正式询价清单底表-第二版.xlsx",
+  "public_info_file": "项目公共信息确认表.rtf",
+  "drawings_dir": "图纸",
+  "output_dir": "采购询价本地工作流/output",
+  "boq_sheet": "正式询价清单底表",
+  "manual_sheet": "需人工确认项",
+  "project_name_placeholder": "待补充",
+  "location_placeholder": "待补充",
+  "contact_placeholder": "待补充",
+  "phone_placeholder": "待补充"
+}

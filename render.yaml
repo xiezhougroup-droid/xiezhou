@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: procurement-inquiry-agent
+    env: docker
+    plan: free
+    autoDeploy: false
+    healthCheckPath: /

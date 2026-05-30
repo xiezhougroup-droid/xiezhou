@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+tools/
+output/
+input/raw/*.xlsx
+input/supplier_quotes/*
+!input/supplier_quotes/使用说明.md
