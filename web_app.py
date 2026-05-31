@@ -66,12 +66,18 @@ def current_split_file() -> Path | None:
     raw_dir = latest_dir("由待处理清单生成拆分")
     standard_dir = latest_dir("按昨日样板标准拆分")
     candidates = [path for path in [raw_dir, standard_dir] if path]
-    if not candidates:
-        return None
-    latest = max(candidates, key=lambda p: p.stat().st_mtime)
-    raw_file = latest / "采购包拆分总表-由待处理清单生成.xlsx"
-    standard_file = latest / "采购包拆分总表-按昨日样板标准.xlsx"
-    return raw_file if raw_file.exists() else standard_file if standard_file.exists() else None
+    known_files = []
+    if candidates:
+        latest = max(candidates, key=lambda p: p.stat().st_mtime)
+        known_files = [
+            latest / "采购包拆分总表-由待处理清单生成.xlsx",
+            latest / "采购包拆分总表-按昨日样板标准.xlsx",
+        ]
+    fallback_files = sorted(OUTPUT_DIR.rglob("采购包拆分总表-*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in [*known_files, *fallback_files]:
+        if path.exists():
+            return path
+    return None
 
 
 def run_script(script: str, *args: str) -> str:
@@ -86,35 +92,35 @@ def run_script(script: str, *args: str) -> str:
 def run_action(action: str) -> str:
     if action == "split":
         if RAW_FILE.exists():
-            return run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE))
-        return run_script("build_split_from_standard.py", "--standard", str(current_standard()))
+            return run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE), "--output-dir", str(OUTPUT_DIR))
+        return run_script("build_split_from_standard.py", "--standard", str(current_standard()), "--output-dir", str(OUTPUT_DIR))
     if action == "invitations":
         split_file = current_split_file()
         if not split_file:
             if RAW_FILE.exists():
-                run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE))
+                run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE), "--output-dir", str(OUTPUT_DIR))
             else:
-                run_script("build_split_from_standard.py", "--standard", str(current_standard()))
+                run_script("build_split_from_standard.py", "--standard", str(current_standard()), "--output-dir", str(OUTPUT_DIR))
             split_file = current_split_file()
         if not split_file:
             raise RuntimeError("没有找到采购包拆分总表。")
-        return run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all")
+        return run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all", "--output-dir", str(OUTPUT_DIR))
     if action == "analyze":
-        return run_script("analyze_supplier_quotes.py")
+        return run_script("analyze_supplier_quotes.py", "--output-dir", str(OUTPUT_DIR))
     if action == "finalize":
-        return run_script("finalize_recommendation.py")
+        return run_script("finalize_recommendation.py", "--output-dir", str(OUTPUT_DIR))
     if action == "full":
         out = []
         if RAW_FILE.exists():
-            out.append(run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE)))
+            out.append(run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE), "--output-dir", str(OUTPUT_DIR)))
         else:
-            out.append(run_script("build_split_from_standard.py", "--standard", str(current_standard())))
+            out.append(run_script("build_split_from_standard.py", "--standard", str(current_standard()), "--output-dir", str(OUTPUT_DIR)))
         split_file = current_split_file()
         if not split_file:
             raise RuntimeError("没有找到采购包拆分总表。")
-        out.append(run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all"))
-        out.append(run_script("analyze_supplier_quotes.py"))
-        out.append(run_script("finalize_recommendation.py"))
+        out.append(run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all", "--output-dir", str(OUTPUT_DIR)))
+        out.append(run_script("analyze_supplier_quotes.py", "--output-dir", str(OUTPUT_DIR)))
+        out.append(run_script("finalize_recommendation.py", "--output-dir", str(OUTPUT_DIR)))
         return "\n".join(out)
     raise RuntimeError(f"未知操作：{action}")
 
