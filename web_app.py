@@ -259,10 +259,10 @@ def home(message: str = "", log: str = "") -> bytes:
       </section>
       <section class="card">
         <h2>4. 上传供应商报价</h2>
-        <p class="muted">选择采购包名称，上传供应商返回的报价 Excel。当前仅支持 .xlsx。</p>
+        <p class="muted">选择采购包名称，上传供应商返回的报价文件。支持 .xlsx/.docx/.pdf；Word/PDF 会先自动转换为可分析 Excel。</p>
         <form method="post" action="/upload_quote" enctype="multipart/form-data" class="row">
           <input name="package" placeholder="采购包名称，如 电线电缆包" required>
-          <input type="file" name="file" accept=".xlsx" required>
+          <input type="file" name="file" accept=".xlsx,.docx,.pdf" required>
           <button class="btn" type="submit">上传报价</button>
         </form>
       </section>
@@ -344,8 +344,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_upload(RAW_FILE)
                 self.send_html(home("待处理采购清单已上传"))
             elif parsed.path == "/upload_quote":
-                self.handle_quote_upload()
-                self.send_html(home("供应商报价已上传，请继续在第 5 步选择对应采购包并点击“分析报价”。"))
+                message, log = self.handle_quote_upload()
+                self.send_html(home(message, log))
             elif parsed.path == "/upload_feedback":
                 self.handle_upload(FEEDBACK_FILE)
                 self.send_html(home("谈判反馈表已上传，请继续在第 6 步选择对应采购包并点击“生成推荐结果”。"))
@@ -365,7 +365,7 @@ class Handler(BaseHTTPRequestHandler):
             },
         )
 
-    def uploaded_file(self, form: cgi.FieldStorage) -> cgi.FieldStorage:
+    def uploaded_file(self, form: cgi.FieldStorage, allowed_suffixes: set[str] | None = None) -> cgi.FieldStorage:
         if "file" not in form:
             raise RuntimeError("未收到文件，请重新选择 Excel 文件后上传。")
         item = form["file"]
@@ -374,10 +374,12 @@ class Handler(BaseHTTPRequestHandler):
         if not getattr(item, "file", None) or not getattr(item, "filename", ""):
             raise RuntimeError("未收到有效文件，请确认上传的是 .xlsx 文件。")
         suffix = Path(str(item.filename)).suffix.lower()
+        allowed = allowed_suffixes or {".xlsx"}
         if suffix == ".xls":
             raise RuntimeError("当前原型暂不支持旧版 .xls 文件。请先用 Excel/WPS 打开该文件，另存为 .xlsx 后再上传。")
-        if suffix != ".xlsx":
-            raise RuntimeError("当前仅支持 .xlsx 文件，请选择 Excel 工作簿 .xlsx 后重新上传。")
+        if suffix not in allowed:
+            allowed_text = "、".join(sorted(allowed))
+            raise RuntimeError(f"当前仅支持 {allowed_text} 文件，请重新上传。")
         return item
 
     def handle_upload(self, target: Path) -> None:
@@ -387,15 +389,22 @@ class Handler(BaseHTTPRequestHandler):
         with target.open("wb") as out:
             shutil.copyfileobj(item.file, out)
 
-    def handle_quote_upload(self) -> None:
+    def handle_quote_upload(self) -> tuple[str, str]:
         form = self.multipart_form()
         package = safe_name(form.getfirst("package", "未命名采购包"))
-        item = self.uploaded_file(form)
+        item = self.uploaded_file(form, {".xlsx", ".docx", ".pdf"})
         filename = safe_name(getattr(item, "filename", "") or "供应商报价.xlsx")
-        target = SUPPLIER_QUOTES_DIR / package / filename
-        target.parent.mkdir(parents=True, exist_ok=True)
+        suffix = Path(filename).suffix.lower()
+        target_dir = SUPPLIER_QUOTES_DIR / package
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / filename
         with target.open("wb") as out:
             shutil.copyfileobj(item.file, out)
+        if suffix == ".xlsx":
+            return f"供应商报价已上传：{target.name}。请继续在第 5 步选择对应采购包并点击“分析报价”。", ""
+        converted = target_dir / f"{Path(filename).stem}-自动转换.xlsx"
+        log = run_script("convert_quote_file.py", "--input", str(target), "--output", str(converted))
+        return "供应商报价已上传，并已自动转换为 Excel。请先核对转换结果，再继续在第 5 步分析报价。", log
 
     def download(self, query: str) -> None:
         path_value = parse_qs(query).get("path", [""])[0]
