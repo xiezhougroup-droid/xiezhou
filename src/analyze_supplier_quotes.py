@@ -70,30 +70,37 @@ def supplier_name_from_path(path: Path) -> str:
 
 def read_quote_file(path: Path, package_hint: str | None = None) -> list[dict[str, Any]]:
     wb = load_workbook(path, data_only=True, read_only=True)
-    if QUOTE_SHEET not in wb.sheetnames:
-        return []
-    ws = wb[QUOTE_SHEET]
+    sheets = [wb[QUOTE_SHEET]] if QUOTE_SHEET in wb.sheetnames else []
+    sheets.extend(wb[name] for name in wb.sheetnames if name != QUOTE_SHEET)
     header_row = None
     headers = None
-    for row_idx in range(1, min(ws.max_row, 10) + 1):
-        values = [cell.value for cell in ws[row_idx]]
-        if "追溯号" in values and "报价单价" in values:
-            header_row = row_idx
-            headers = values
+    ws = None
+    for candidate in sheets:
+        for row_idx in range(1, min(candidate.max_row, 15) + 1):
+            values = [clean(cell.value) for cell in candidate[row_idx]]
+            has_trace = "追溯号" in values or "原始行号或内部追溯号" in values
+            has_price = "报价单价" in values or "单价" in values
+            has_name = "名称" in values or "标准材料名称" in values
+            if has_trace and has_price and has_name:
+                header_row = row_idx
+                headers = values
+                ws = candidate
+                break
+        if ws is not None:
             break
-    if header_row is None or headers is None:
+    if ws is None or header_row is None or headers is None:
         return []
     supplier = supplier_name_from_path(path)
     rows: list[dict[str, Any]] = []
     for values in ws.iter_rows(min_row=header_row + 1, values_only=True):
         row = dict(zip(headers, values))
-        trace = clean(row.get("追溯号"))
-        name = clean(row.get("名称"))
+        trace = clean(row.get("追溯号") or row.get("原始行号或内部追溯号"))
+        name = clean(row.get("名称") or row.get("标准材料名称"))
         if not trace and not name:
             continue
         qty = number(row.get("数量"))
-        unit_price = number(row.get("报价单价"))
-        total_price = number(row.get("报价合价"))
+        unit_price = number(row.get("报价单价") or row.get("单价"))
+        total_price = number(row.get("报价合价") or row.get("合价"))
         if total_price is None and qty is not None and unit_price is not None:
             total_price = qty * unit_price
         rows.append({
@@ -113,7 +120,7 @@ def read_quote_file(path: Path, package_hint: str | None = None) -> list[dict[st
             "付款条件": clean(row.get("付款条件")),
             "报价单价": unit_price,
             "报价合价": total_price,
-            "报价备注": clean(row.get("报价备注")),
+            "报价备注": clean(row.get("报价备注") or row.get("备注")),
         })
     return rows
 

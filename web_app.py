@@ -204,6 +204,19 @@ def package_select(name: str) -> str:
     return f'<select name="{html.escape(name)}">' + "".join(options) + "</select>"
 
 
+def output_links_from_log(log: str) -> str:
+    links = []
+    for line in log.splitlines():
+        if "输出文件：" not in line:
+            continue
+        path = Path(line.split("输出文件：", 1)[1].strip())
+        if path.exists() and path.is_file():
+            links.append(file_link(path, f"下载 {path.name}"))
+    if not links:
+        return ""
+    return '<div class="card"><strong>本次输出：</strong> ' + " / ".join(links) + "</div><br>"
+
+
 def list_outputs() -> str:
     rows = []
     for path in sorted([p for p in OUTPUT_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
@@ -223,6 +236,7 @@ def home(message: str = "", log: str = "") -> bytes:
     raw_text = str(RAW_FILE) if RAW_FILE.exists() else "尚未上传待处理采购清单"
     body = f"""
     {f'<div class="card"><strong class="ok">{html.escape(message)}</strong></div><br>' if message else ''}
+    {output_links_from_log(log) if log else ''}
     {f'<pre>{html.escape(log)}</pre><br>' if log else ''}
     <div class="grid">
       <section class="card">
@@ -331,10 +345,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(home("待处理采购清单已上传"))
             elif parsed.path == "/upload_quote":
                 self.handle_quote_upload()
-                self.send_html(home("供应商报价已上传"))
+                self.send_html(home("供应商报价已上传，请继续在第 5 步选择对应采购包并点击“分析报价”。"))
             elif parsed.path == "/upload_feedback":
                 self.handle_upload(FEEDBACK_FILE)
-                self.send_html(home("谈判反馈表已上传"))
+                self.send_html(home("谈判反馈表已上传，请继续在第 6 步选择对应采购包并点击“生成推荐结果”。"))
             else:
                 self.send_error(404)
         except Exception as exc:
