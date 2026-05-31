@@ -89,7 +89,7 @@ def run_script(script: str, *args: str) -> str:
     return output
 
 
-def run_action(action: str) -> str:
+def run_action(action: str, package_filter: str = "") -> str:
     if action == "split":
         if RAW_FILE.exists():
             return run_script("process_raw_procurement_list.py", "--input", str(RAW_FILE), "--output-dir", str(OUTPUT_DIR))
@@ -106,9 +106,17 @@ def run_action(action: str) -> str:
             raise RuntimeError("没有找到采购包拆分总表。")
         return run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all", "--output-dir", str(OUTPUT_DIR))
     if action == "analyze":
-        return run_script("analyze_supplier_quotes.py", "--output-dir", str(OUTPUT_DIR))
+        if package_filter:
+            package_dir = SUPPLIER_QUOTES_DIR / safe_name(package_filter)
+            if not package_dir.exists():
+                raise RuntimeError(f"未找到该采购包的供应商报价目录：{package_filter}")
+            return run_script("analyze_supplier_quotes.py", "--input-dir", str(package_dir), "--output-dir", str(OUTPUT_DIR))
+        return run_script("analyze_supplier_quotes.py", "--input-dir", str(SUPPLIER_QUOTES_DIR), "--output-dir", str(OUTPUT_DIR))
     if action == "finalize":
-        return run_script("finalize_recommendation.py", "--output-dir", str(OUTPUT_DIR))
+        args = ["--feedback", str(FEEDBACK_FILE), "--output-dir", str(OUTPUT_DIR)]
+        if package_filter:
+            args.extend(["--package", package_filter])
+        return run_script("finalize_recommendation.py", *args)
     if action == "full":
         out = []
         if RAW_FILE.exists():
@@ -119,8 +127,8 @@ def run_action(action: str) -> str:
         if not split_file:
             raise RuntimeError("没有找到采购包拆分总表。")
         out.append(run_script("generate_invitations_from_split.py", "--standard", str(split_file), "--packages", "all", "--output-dir", str(OUTPUT_DIR)))
-        out.append(run_script("analyze_supplier_quotes.py", "--output-dir", str(OUTPUT_DIR)))
-        out.append(run_script("finalize_recommendation.py", "--output-dir", str(OUTPUT_DIR)))
+        out.append(run_script("analyze_supplier_quotes.py", "--input-dir", str(SUPPLIER_QUOTES_DIR), "--output-dir", str(OUTPUT_DIR)))
+        out.append(run_script("finalize_recommendation.py", "--feedback", str(FEEDBACK_FILE), "--output-dir", str(OUTPUT_DIR)))
         return "\n".join(out)
     raise RuntimeError(f"未知操作：{action}")
 
@@ -183,6 +191,19 @@ def file_link(path: Path, label: str | None = None) -> str:
     return f'<a href="{href}">{html.escape(label or path.name)}</a>'
 
 
+def available_packages() -> list[str]:
+    if not SUPPLIER_QUOTES_DIR.exists():
+        return []
+    return sorted(path.name for path in SUPPLIER_QUOTES_DIR.iterdir() if path.is_dir())
+
+
+def package_select(name: str) -> str:
+    options = ['<option value="">全部采购包</option>']
+    for package in available_packages():
+        options.append(f'<option value="{html.escape(package)}">{html.escape(package)}</option>')
+    return f'<select name="{html.escape(name)}">' + "".join(options) + "</select>"
+
+
 def list_outputs() -> str:
     rows = []
     for path in sorted([p for p in OUTPUT_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
@@ -233,19 +254,27 @@ def home(message: str = "", log: str = "") -> bytes:
       </section>
       <section class="card">
         <h2>5. 分析报价并出谈判策略</h2>
-        <p class="muted">自动合并报价，检查漏项、异常项，输出谈判策略。</p>
-        <form method="post" action="/run"><input type="hidden" name="action" value="analyze"><button class="btn" type="submit">分析报价</button></form>
+        <p class="muted">按采购包/供应商类型合并报价，检查漏项、异常项，输出谈判策略。</p>
+        <form method="post" action="/run" class="row">
+          <input type="hidden" name="action" value="analyze">
+          {package_select("package")}
+          <button class="btn" type="submit">分析报价</button>
+        </form>
       </section>
       <section class="card">
         <h2>6. 最终推荐</h2>
-        <p class="muted">下载/填写谈判反馈表后，生成推荐合作结果。</p>
+        <p class="muted">下载/填写谈判反馈表后，按采购包/供应商类型生成推荐合作结果。</p>
         <div class="row">
           {file_link(FEEDBACK_FILE, "下载谈判反馈表") or '<form method="post" action="/run"><input type="hidden" name="action" value="finalize"><button class="btn secondary" type="submit">先生成反馈表</button></form>'}
           <form method="post" action="/upload_feedback" enctype="multipart/form-data">
             <input type="file" name="file" accept=".xlsx" required>
             <button class="btn secondary" type="submit">上传已填反馈表</button>
           </form>
-          <form method="post" action="/run"><input type="hidden" name="action" value="finalize"><button class="btn" type="submit">生成推荐结果</button></form>
+          <form method="post" action="/run" class="row">
+            <input type="hidden" name="action" value="finalize">
+            {package_select("package")}
+            <button class="btn" type="submit">生成推荐结果</button>
+          </form>
         </div>
       </section>
     </div>
@@ -289,8 +318,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/run":
                 length = int(self.headers.get("Content-Length", "0"))
                 data = self.rfile.read(length).decode("utf-8")
-                action = parse_qs(data).get("action", [""])[0]
-                log = run_action(action)
+                form = parse_qs(data)
+                action = form.get("action", [""])[0]
+                package_filter = form.get("package", [""])[0]
+                log = run_action(action, package_filter)
                 self.send_html(home("操作已完成", log))
             elif parsed.path == "/upload_standard":
                 self.handle_upload(STANDARD_FILE)

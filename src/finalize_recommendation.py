@@ -204,6 +204,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-dir", default=str(PROJECT_DIR), help="项目根目录")
     parser.add_argument("--feedback", default="采购询价本地工作流/input/negotiation_feedback.xlsx", help="谈判反馈表")
     parser.add_argument("--output-dir", default="采购询价本地工作流/output", help="输出目录")
+    parser.add_argument("--package", default="", help="只生成指定采购包的最终推荐结果；为空则生成全部采购包")
     return parser.parse_args()
 
 
@@ -216,14 +217,19 @@ def main() -> None:
     if not feedback_path.exists():
         create_feedback_template(feedback_path)
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = output_root / f"{run_id}_最终推荐结果"
+    package_filter = clean(args.package)
+    output_dir_name = f"{run_id}_{package_filter}_最终推荐结果" if package_filter else f"{run_id}_最终推荐结果"
+    output_dir = output_root / output_dir_name
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = read_feedback(feedback_path)
+    if package_filter:
+        rows = [row for row in rows if clean(row.get("采购包")) == package_filter]
     output_path = output_dir / "采购推荐合作结果.xlsx"
     write_final(output_path, feedback_path, rows)
     log = [
         f"运行时间：{run_id}",
         f"谈判反馈表：{feedback_path}",
+        f"采购包筛选：{package_filter or '全部采购包'}",
         f"有效反馈记录：{len(rows)}",
         f"输出文件：{output_path}",
     ]
